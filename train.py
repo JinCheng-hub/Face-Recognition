@@ -2,37 +2,60 @@ import os
 import cv2
 import numpy as np
 import argparse
+from sklearn.model_selection import train_test_split
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.metrics import accuracy_score
+import pickle
 
 
-def train(data):
-    detector = cv2.CascadeClassifier(
-        cv2.data.haarcascades + "haarcascade_frontalface_default.xml"
-    )  # 載入人臉追蹤模型
-    recog = cv2.face.LBPHFaceRecognizer_create()  # 啟用訓練人臉模型方法
-    faces = []  # 儲存人臉位置大小的串列
-    ids = []  # 記錄該人臉 id 的串列
+def preprocess(dataset):
+    features = []
+    labels = []
 
-    for i, name in enumerate(os.listdir(data)):
-        for file in os.listdir(f"{data}/{name}"):
-            img = cv2.imread(f"{data}/{name}/{file}")
-            gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-            img_np = np.array(gray, "uint8")
-            face = detector.detectMultiScale(gray)
-            for x, y, w, h in face:
-                faces.append(img_np[y : y + h, x : x + w])
-                ids.append(i)
+    for name in os.listdir(dataset):
+        for file in os.listdir(f"{dataset}/{name}"):
+            img = cv2.imread(f"{dataset}/{name}/{file}", cv2.IMREAD_GRAYSCALE)
+            if img is None:
+                continue
 
-    print("training...")  # 提示開始訓練
-    recog.train(faces, np.array(ids))  # 開始訓練
-    recog.save("face.yml")  # 訓練完成儲存為 face.yml
-    print("ok!")
+            features.append(img.flatten())
+            labels.append(name)
+
+    features = np.array(features)
+    labels = np.array(labels)
+    return train_test_split(features, labels, test_size=0.2)
+
+
+def random_forest(data):
+    X_train, X_test, y_train, y_test = data
+    clf = RandomForestClassifier(n_estimators=100, random_state=0)
+    print("Training the Random Forest model...")
+    clf.fit(X_train, y_train)
+    print("Completed!")
+
+    y_pred = clf.predict(X_test)
+    accuracy = accuracy_score(y_test, y_pred)
+    print(f"Model accuracy: {accuracy:.2f}")
+    return clf
+
+
+def save_model(model, name):
+    os.makedirs("models", exist_ok=True)
+    model_path = os.path.join("models", f"{name}.pkl")
+    with open(model_path, "wb") as f:
+        pickle.dump(model, f)
+    print(f"Model saved as {name}.pkl")
 
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--data", help="訓練資料", required=True)
+    parser.add_argument("--name", help="Model name", required=True)
+    parser.add_argument("--data", help="Dataset path", default="dataset")
     args = parser.parse_args()
-    train(args.name, args.limit)
+
+    data = preprocess(args.data)
+    model = random_forest(data)
+    save_model(model, args.name)
 
 
 if __name__ == "__main__":
