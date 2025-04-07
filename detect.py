@@ -1,70 +1,61 @@
 import cv2
 import argparse
+import pickle
+
+def load_model(model):
+    try:
+        with open(model, 'rb') as f:
+            model_data = pickle.load(f)
+        return model_data
+    except Exception as e:
+        print(f"Loading model error: {e}")
+        return None
 
 
-def detect(model, source):
-    recognizer = cv2.face.LBPHFaceRecognizer_create()  # 啟用訓練人臉模型方法
-    recognizer.read(model)  # 讀取人臉模型檔
-    cascade_path = (
-        cv2.data.haarcascades + "haarcascade_frontalface_default.xml"
-    )  # 載入人臉追蹤模型
-    face_cascade = cv2.CascadeClassifier(cascade_path)  # 啟用人臉追蹤
-
-    # 建立姓名和 id 的對照表
-    name = {"1": "Green", "2": "Durant"}
-
-    cap = cv2.VideoCapture(source)  # 開啟攝影機
-    cv2.namedWindow("interview", cv2.WINDOW_NORMAL)
-    cv2.resizeWindow("interview", 1080, 1920)
-    if not cap.isOpened():
-        print("Cannot load video")
-        exit()
+def detect(source, model, threshold):
+    detector = cv2.CascadeClassifier(cv2.data.haarcascades + "haarcascade_frontalface_default.xml")
+    cap = cv2.VideoCapture(source)
+    cv2.namedWindow("Face Recognition", cv2.WINDOW_NORMAL)
+    cv2.resizeWindow("Face Recognition", 1080, 1920)
 
     while True:
-        ret, img = cap.read()
-        if not ret:
-            print("Cannot receive frame")
-            break
-        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)  # 轉換成黑白
-        faces = face_cascade.detectMultiScale(gray)  # 追蹤人臉 ( 目的在於標記出外框 )
+        ret, frame = cap.read()
+        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        faces = detector.detectMultiScale(gray, 1.1, 5)
 
-        # 依序判斷每張臉屬於哪個 id
-        for x, y, w, h in faces:
-            # 取出 id 號碼以及信心指數 confidence
-            idnum, confidence = recognizer.predict(gray[y : y + h, x : x + w])
-            if confidence > 80:
+        for (x, y, w, h) in faces:
+            if w < 50 and h < 50:
                 continue
-            cv2.rectangle(img, (x, y), (x + w, y + h), (0, 255, 0), 2)  # 標記人臉外框
-            text = f"{name[str(idnum)]} {confidence:.2f}"
-            # 在人臉外框旁加上名字
-            cv2.putText(
-                img,
-                text,
-                (x, y - 5),
-                cv2.FONT_HERSHEY_SIMPLEX,
-                1,
-                (0, 255, 0),
-                2,
-                cv2.LINE_AA,
-            )
+            cv2.rectangle(frame, (x, y), (x+w, y+h), (0, 0, 255), 2)
+            face = gray[y:y+h, x:x+w]
+            resized_face = cv2.resize(face, (100, 100))
+            features = resized_face.flatten().reshape(1, -1)
+            prediction = model.predict(features)
+            conf = model.predict_proba(features)[0]
+            if max(conf) < threshold:
+                continue
+            cv2.putText(frame, f'{prediction}: {max(conf):.2f}', (x, y-10), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
 
-        cv2.imshow("interview", img)
+        cv2.imshow("Face Recognition", frame)
         if cv2.waitKey(5) == ord("q"):
-            break  # 按下 q 鍵停止
+            break
+
     cap.release()
     cv2.destroyAllWindows()
 
 
 def main():
     parser = argparse.ArgumentParser()
+    parser.add_argument("--source", help="辨識資料", default=0)
     parser.add_argument("--model", help="辨識模型", required=True)
-    parser.add_argument("--source", help="辨識資料", required=True)
+    parser.add_argument("--threshold", type=float, default=0.5, help="confidence threshold (0-1)")
     args = parser.parse_args()
     try:
         args.source = int(args.source)
     except ValueError:
         pass
-    detect(args.model, args.source)
+    model = load_model(args.model)
+    detect(args.source, model, args.threshold)
 
 
 if __name__ == "__main__":
